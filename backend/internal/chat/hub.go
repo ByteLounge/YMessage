@@ -48,8 +48,10 @@ func (h *Hub) Start() {
 			h.mu.Lock()
 			if _, ok := h.clients[client.UserID]; !ok {
 				h.clients[client.UserID] = make(map[uuid.UUID]*Client)
-				// Start Redis PubSub subscriber for this user
-				go h.subscribeUserRedis(client.UserID)
+				// Start Redis PubSub subscriber ONLY if Redis is enabled
+				if database.IsUsingRedis {
+					go h.subscribeUserRedis(client.UserID)
+				}
 			}
 			h.clients[client.UserID][client.DeviceID] = client
 			h.mu.Unlock()
@@ -88,15 +90,12 @@ func (h *Hub) subscribeUserRedis(userID uuid.UUID) {
 				select {
 				case client.Send <- []byte(msg.Payload):
 				default:
-					// If channel is blocked, clean up
 					go func(c *Client) { h.unregister <- c }(client)
 				}
 			}
 		}
 		h.mu.RUnlock()
 
-		// If user is offline, pubsub will terminate when they disconnect.
-		// If they have no active devices at all, unsubscribe.
 		h.mu.RLock()
 		_, exists := h.clients[userID]
 		h.mu.RUnlock()
@@ -106,11 +105,27 @@ func (h *Hub) subscribeUserRedis(userID uuid.UUID) {
 	}
 }
 
-// PublishToUser sends message payload to a user via Redis PubSub
+// PublishToUser sends message payload to a user (via Redis PubSub or local in-memory routing)
 func (h *Hub) PublishToUser(userID uuid.UUID, payload []byte) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	database.RedisClient.Publish(ctx, "user:"+userID.String(), payload)
+	if database.IsUsingRedis && database.RedisClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		database.RedisClient.Publish(ctx, "user:"+userID.String(), payload)
+	} else {
+		// Fallback to local in-memory WebSocket routing
+		h.mu.RLock()
+		devices, online := h.clients[userID]
+		if online {
+			for _, client := range devices {
+				select {
+				case client.Send <- payload:
+				default:
+					go func(c *Client) { h.unregister <- c }(client)
+				}
+			}
+		}
+		h.mu.RUnlock()
+	}
 }
 
 // BroadcastToGroup sends a message to all group members
@@ -119,7 +134,6 @@ func (h *Hub) BroadcastToGroup(groupID uuid.UUID, payload []byte, senderID uuid.
 	database.DB.Where("group_id = ?", groupID).Find(&members)
 
 	for _, member := range members {
-		// Do not echoes back to the sender device (or send to all devices of sender for sync)
 		h.PublishToUser(member.UserID, payload)
 	}
 }

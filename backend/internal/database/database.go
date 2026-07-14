@@ -8,6 +8,7 @@ import (
 
 	"ymessage/internal/models"
 
+	"github.com/glebarez/sqlite"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -16,42 +17,36 @@ import (
 
 var DB *gorm.DB
 var RedisClient *redis.Client
+var IsUsingRedis bool
 
-// InitDB initializes PostgreSQL connection and runs auto-migrations
+// InitDB initializes PostgreSQL connection or falls back to SQLite
 func InitDB() *gorm.DB {
 	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		dsn = "host=localhost user=postgres password=postgres dbname=ymessage port=5432 sslmode=disable"
-	}
-
 	var db *gorm.DB
 	var err error
-	maxRetries := 5
 
-	// Retry connecting to DB (crucial for Docker Compose startup order)
-	for i := 1; i <= maxRetries; i++ {
-		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
+	if dsn == "" {
+		log.Println("DATABASE_URL not set. Falling back to local SQLite database (ymessage.db)...")
+		db, err = gorm.Open(sqlite.Open("ymessage.db"), &gorm.Config{
 			Logger: logger.Default.LogMode(logger.Info),
 		})
-		if err == nil {
-			break
+	} else {
+		maxRetries := 5
+		for i := 1; i <= maxRetries; i++ {
+			db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
+				Logger: logger.Default.LogMode(logger.Info),
+			})
+			if err == nil {
+				break
+			}
+			log.Printf("Failed to connect to database (attempt %d/%d): %v. Retrying in 5 seconds...", i, maxRetries, err)
+			time.Sleep(5 * time.Second)
 		}
-		log.Printf("Failed to connect to database (attempt %d/%d): %v. Retrying in 5 seconds...", i, maxRetries, err)
-		time.Sleep(5 * time.Second)
 	}
 
 	if err != nil {
-		log.Fatalf("Could not connect to PostgreSQL database: %v", err)
+		log.Fatalf("Could not connect to database: %v", err)
 	}
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		log.Fatalf("Failed to fetch underlying sql.DB: %v", err)
-	}
-
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
-	sqlDB.SetConnMaxLifetime(time.Hour)
 
 	log.Println("Database connection established.")
 
@@ -76,17 +71,18 @@ func InitDB() *gorm.DB {
 	return db
 }
 
-// InitRedis initializes the Redis client
+// InitRedis initializes the Redis client or sets local fallback flag
 func InitRedis() *redis.Client {
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
-		redisURL = "localhost:6379"
+		log.Println("REDIS_URL not set. WebSocket server will run in local-routing mode (no Redis PubSub required).")
+		IsUsingRedis = false
+		return nil
 	}
 
 	opts, err := redis.ParseURL(redisURL)
 	var client *redis.Client
 	if err != nil {
-		// Fallback to plain address
 		client = redis.NewClient(&redis.Options{
 			Addr: redisURL,
 		})
@@ -94,15 +90,17 @@ func InitRedis() *redis.Client {
 		client = redis.NewClient(opts)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	if _, err := client.Ping(ctx).Result(); err != nil {
-		log.Printf("Warning: Redis connection ping failed: %v", err)
-	} else {
-		log.Println("Redis connection established.")
+		log.Printf("Redis ping failed: %v. Running WebSocket in local-routing mode.", err)
+		IsUsingRedis = false
+		return nil
 	}
 
+	log.Println("Redis connection established.")
+	IsUsingRedis = true
 	RedisClient = client
 	return client
 }
