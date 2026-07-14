@@ -8,7 +8,6 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -96,7 +95,6 @@ func UploadAttachment(c *gin.Context) {
 	fileName := fmt.Sprintf("%s%s", uniqueID, ext)
 
 	var fileData []byte
-	var fileReader io.Reader = file
 
 	// Read everything to memory to run thumbnail processing
 	buf := new(bytes.Buffer)
@@ -105,7 +103,6 @@ func UploadAttachment(c *gin.Context) {
 		return
 	}
 	fileData = buf.Bytes()
-	fileReader = bytes.NewReader(fileData)
 
 	var thumbnailURL string
 	contentType := header.Header.Get("Content-Type")

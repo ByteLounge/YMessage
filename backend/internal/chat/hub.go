@@ -45,7 +45,7 @@ func InitHub() *Hub {
 func (h *Hub) Start() {
 	for {
 		select {
-		case client := Skinner := <-h.register:
+		case client := <-h.register:
 			h.mu.Lock()
 			if _, ok := h.clients[client.UserID]; !ok {
 				h.clients[client.UserID] = make(map[uuid.UUID]*Client)
