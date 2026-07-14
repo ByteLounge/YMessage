@@ -1,0 +1,25 @@
+name: ymessage
+description: A private, fast, and beautiful E2EE messaging platform.
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+  web_socket_channel: ^2.4.1
+  cryptography: ^2.5.0
+  shared_preferences: ^2.2.2
+  provider: ^6.1.1
+  intl: ^0.19.0
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

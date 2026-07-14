@@ -1,0 +1,206 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ymessage-postgres
+spec:
+  ports:
+    - port: 5432
+  selector:
+    app: ymessage-postgres
+  clusterIP: None
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ymessage-postgres
+spec:
+  serviceName: "ymessage-postgres"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ymessage-postgres
+  template:
+    metadata:
+      labels:
+        app: ymessage-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: postgrespassword
+            - name: POSTGRES_DB
+              value: ymessage
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-storage
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ymessage-redis
+spec:
+  ports:
+    - port: 6379
+  selector:
+    app: ymessage-redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ymessage-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ymessage-redis
+  template:
+    metadata:
+      labels:
+        app: ymessage-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ymessage-backend
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: ymessage-backend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ymessage-backend
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: ymessage-backend
+  template:
+    metadata:
+      labels:
+        app: ymessage-backend
+    spec:
+      containers:
+        - name: backend
+          image: ymessage-backend:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URL
+              value: postgres://postgres:postgrespassword@ymessage-postgres:5432/ymessage?sslmode=disable
+            - name: REDIS_URL
+              value: ymessage-redis:6379
+            - name: JWT_SECRET
+              value: ymessage_super_secure_production_secret_key
+            - name: PORT
+              value: "8080"
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /api/auth/register
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/auth/register
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ymessage-frontend
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: ymessage-frontend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ymessage-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ymessage-frontend
+  template:
+    metadata:
+      labels:
+        app: ymessage-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: ymessage-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ymessage-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/websocket-services: "ymessage-backend"
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: ymessage-backend
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ymessage-frontend
+                port:
+                  number: 3000
