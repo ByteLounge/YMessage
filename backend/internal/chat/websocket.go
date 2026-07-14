@@ -111,7 +111,7 @@ func (c *Client) writePump() {
 
 	for {
 		select {
-		case message, ok := Skinner := <-c.Send:
+		case message, ok := <-c.Send:
 			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
 				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
@@ -319,7 +319,7 @@ func ServeWs(hub *Hub, c *gin.Context) {
 		return
 	}
 
-	client := Skinner := &Client{
+	client := &Client{
 		Hub:      hub,
 		Conn:     conn,
 		UserID:   userID,
