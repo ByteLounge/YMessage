@@ -196,5 +196,8 @@ func GetChats(c *gin.Context) {
 		})
 	}
 
+	if chatList == nil {
+		chatList = []ChatListItem{}
+	}
 	c.JSON(http.StatusOK, chatList)
 }

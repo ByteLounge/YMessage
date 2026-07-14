@@ -112,7 +112,7 @@ export default function Home() {
       });
       if (response.ok) {
         const data = await response.json();
-        setChats(data);
+        setChats(data || []);
       }
     } catch (err) {
       console.error('Failed to fetch chats:', err);

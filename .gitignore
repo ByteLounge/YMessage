@@ -1,0 +1,44 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+web_stage/
+
+# Next.js build outputs
+.next/
+out/
+
+# Expo directories
+.expo/
+dist/
+
+# Compiled Go binaries
+*.exe
+*.exe~
+ymessage-server
+server
+
+# Database and logs
+*.db
+*.log
+uploads/
+
+# IDE files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# System Files
+.DS_Store
+Thumbs.db
+
+# OS-specific temporary folders
+/build/
+/.dart_tool/
+/android/.gradle/
+/android/app/build/
+/ios/Flutter/
+/ios/.symlinks/
